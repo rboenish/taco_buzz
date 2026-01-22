@@ -1,0 +1,486 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Taco Bell & Starbucks - Washington & Oregon</title>
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+    <script src="https://unpkg.com/leaflet.heat@0.2.0/dist/leaflet-heat.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: #1a1a2e;
+            color: #fff;
+        }
+        header {
+            background: linear-gradient(135deg, #1a1a2e 0%, #2d2d44 100%);
+            padding: 1rem 2rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 1px solid #333;
+        }
+        header h1 { font-size: 1.4rem; }
+        .stats {
+            display: flex;
+            gap: 2rem;
+            font-size: 0.85rem;
+        }
+        .stat { text-align: center; }
+        .stat-number { font-size: 1.3rem; font-weight: bold; }
+        .stat-number.taco { color: #e63946; }
+        .stat-number.starbucks { color: #00704A; }
+        .main-container {
+            display: flex;
+            height: calc(100vh - 60px);
+        }
+        #map { flex: 2; height: 100%; }
+        .inset-panel {
+            flex: 1;
+            max-width: 33%;
+            background: #16162a;
+            padding: 1.5rem;
+            border-left: 1px solid #333;
+            display: flex;
+            flex-direction: column;
+        }
+        .inset-panel h2 {
+            font-size: 1rem;
+            margin-bottom: 0.5rem;
+            color: #aaa;
+        }
+        .inset-panel h3 {
+            font-size: 1.3rem;
+            margin-bottom: 1rem;
+        }
+        .chart-container {
+            flex: 1;
+            position: relative;
+            min-height: 250px;
+        }
+        .stats-summary {
+            margin-top: 1rem;
+            padding: 1rem;
+            background: #1a1a2e;
+            border-radius: 8px;
+            font-size: 0.9rem;
+        }
+        .stats-summary div { margin: 0.5rem 0; }
+        .stats-summary span { color: #888; }
+        .highlight { color: #a855f7; font-weight: bold; }
+        .legend {
+            background: rgba(26, 26, 46, 0.95);
+            padding: 12px 16px;
+            border-radius: 8px;
+            font-size: 0.8rem;
+        }
+        .legend-title { font-weight: bold; margin-bottom: 8px; }
+        .legend-item { display: flex; align-items: center; gap: 8px; margin: 6px 0; }
+        .legend-dot {
+            width: 10px; height: 10px; border-radius: 50%;
+            border: 2px solid #fff;
+        }
+        .legend-dot.taco { background: #e63946; }
+        .legend-dot.starbucks { background: #00704A; }
+        .legend-heat { width: 60px; height: 10px; border-radius: 3px; }
+        .legend-heat.taco { background: linear-gradient(to right, rgba(230,57,70,0.2), rgba(230,57,70,1)); }
+        .legend-heat.starbucks { background: linear-gradient(to right, rgba(0,112,74,0.2), rgba(0,112,74,1)); }
+        .layer-controls {
+            margin-top: auto;
+            padding-top: 1rem;
+            border-top: 1px solid #333;
+        }
+        .layer-controls label {
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            margin: 8px 0;
+            cursor: pointer;
+        }
+        .leaflet-popup-content-wrapper {
+            background: #1a1a2e;
+            color: #fff;
+            border-radius: 8px;
+        }
+        .leaflet-popup-tip { background: #1a1a2e; }
+        .popup-title { font-weight: bold; margin-bottom: 4px; }
+        .popup-title.taco { color: #e63946; }
+        .popup-title.starbucks { color: #00704A; }
+        .popup-address { font-size: 0.85rem; color: #aaa; }
+    </style>
+</head>
+<body>
+    <header>
+        <h1>Taco Bell & Starbucks Locations</h1>
+        <div class="stats">
+            <div class="stat">
+                <div class="stat-number taco" id="taco-count">159</div>
+                <div>Taco Bell</div>
+            </div>
+            <div class="stat">
+                <div class="stat-number starbucks" id="starbucks-count">1,116</div>
+                <div>Starbucks</div>
+            </div>
+        </div>
+    </header>
+    <div class="main-container">
+        <div id="map"></div>
+        <div class="inset-panel">
+            <h2>Distance Analysis</h2>
+            <h3>Taco Bell to Nearest Starbucks</h3>
+            <div class="chart-container">
+                <canvas id="distanceChart"></canvas>
+            </div>
+            <div class="stats-summary">
+                <div><span>Minimum:</span> <span class="highlight" id="min-dist">--</span></div>
+                <div><span>Maximum:</span> <span class="highlight" id="max-dist">--</span></div>
+                <div><span>Median:</span> <span class="highlight" id="median-dist">--</span></div>
+                <div><span>Average:</span> <span class="highlight" id="avg-dist">--</span></div>
+            </div>
+            <div class="layer-controls">
+                <strong>Map Layers</strong>
+                <label><input type="checkbox" id="toggle-taco-dots" checked> Taco Bell Locations</label>
+                <label><input type="checkbox" id="toggle-starbucks-dots" checked> Starbucks Locations</label>
+                <label><input type="checkbox" id="toggle-taco-heat" checked> Taco Bell Heat Map</label>
+                <label><input type="checkbox" id="toggle-starbucks-heat" checked> Starbucks Heat Map</label>
+            </div>
+        </div>
+    </div>
+
+    <script>
+    // Taco Bell locations [lat, lng, name, city, state, address]
+    const tacoBellData = [
+        // WASHINGTON - Seattle (7)
+        [47.5801, -122.3292, "Taco Bell", "Seattle", "WA", "2201 4th Avenue South"],
+        [47.6245, -122.3563, "Taco Bell", "Seattle", "WA", "210 W. Mercer St."],
+        [47.7334, -122.2904, "Taco Bell", "Seattle", "WA", "14506 Bothell Way NE"],
+        [47.6942, -122.3443, "Taco Bell", "Seattle", "WA", "1110 North 90th Street"],
+        [47.5142, -122.3543, "Taco Bell", "Seattle", "WA", "10711 16th Ave SW"],
+        [47.5211, -122.2697, "Taco Bell", "Seattle", "WA", "9401 Rainier Ave. S"],
+        [47.6693, -122.3765, "Taco Bell", "Seattle", "WA", "5918 15th Avenue NW"],
+        // WASHINGTON - Spokane (9)
+        [47.7401, -117.4112, "Taco Bell", "Spokane", "WA", "9664 N Newport Hwy"],
+        [47.6523, -117.4201, "Taco Bell", "Spokane", "WA", "825 W 3rd Ave"],
+        [47.7012, -117.4112, "Taco Bell", "Spokane", "WA", "6614 N Division St"],
+        [47.6889, -117.4523, "Taco Bell", "Spokane", "WA", "4101 N Market St"],
+        [47.6301, -117.3623, "Taco Bell", "Spokane", "WA", "3010 East 29th Avenue"],
+        [47.6634, -117.4267, "Taco Bell", "Spokane", "WA", "1202 N Monroe St"],
+        [47.6567, -117.3012, "Taco Bell", "Spokane", "WA", "10620 East Sprague Avenue"],
+        [47.7123, -117.5234, "Taco Bell", "Spokane", "WA", "10510 W SR 2"],
+        [47.6989, -117.4034, "Taco Bell", "Spokane", "WA", "6404 N. Ash St."],
+        // WASHINGTON - Vancouver (10)
+        [45.6601, -122.5912, "Taco Bell", "Vancouver", "WA", "8300 NE Vancouver Plaza Dr"],
+        [45.6823, -122.6612, "Taco Bell", "Vancouver", "WA", "7206 NE Highway 99"],
+        [45.6534, -122.6823, "Taco Bell", "Vancouver", "WA", "2600 North General Anderson"],
+        [45.6412, -122.5234, "Taco Bell", "Vancouver", "WA", "15640 NE Fourth Plain Rd"],
+        [45.7123, -122.6612, "Taco Bell", "Vancouver", "WA", "13204 N.E. Hwy 99"],
+        [45.6012, -122.4912, "Taco Bell", "Vancouver", "WA", "1195 SE 163rd Place"],
+        [45.6512, -122.5512, "Taco Bell", "Vancouver", "WA", "11717 NE 65th Street"],
+        [45.6234, -122.5234, "Taco Bell", "Vancouver", "WA", "11620 SE Mill Plain Blvd"],
+        [45.6712, -122.6312, "Taco Bell", "Vancouver", "WA", "8605 NE Andreson"],
+        [45.6989, -122.5623, "Taco Bell", "Vancouver", "WA", "11606 NE 119th Street"],
+        // WASHINGTON - Tacoma (7)
+        [47.2234, -122.4612, "Taco Bell", "Tacoma", "WA", "2945 S 38th St"],
+        [47.2567, -122.4723, "Taco Bell", "Tacoma", "WA", "2902 6th Avenue"],
+        [47.2712, -122.4434, "Taco Bell", "Tacoma", "WA", "2615 North Pearl Street"],
+        [47.1623, -122.4312, "Taco Bell", "Tacoma", "WA", "15611 Pacific Ave"],
+        [47.1989, -122.4212, "Taco Bell", "Tacoma", "WA", "1404 E. 72nd Street"],
+        [47.1823, -122.4312, "Taco Bell", "Tacoma", "WA", "10611 Pacific Ave"],
+        [47.1412, -122.3912, "Taco Bell", "Tacoma", "WA", "5308 176th St. East"],
+        // WASHINGTON - Bellingham (2)
+        [48.7734, -122.4612, "Taco Bell", "Bellingham", "WA", "1297 E. Sunset Dr."],
+        [48.7889, -122.4823, "Taco Bell", "Bellingham", "WA", "100 East Stuart Rd."],
+        // WASHINGTON - Olympia (2)
+        [47.0312, -122.9312, "Taco Bell", "Olympia", "WA", "1101 Cooper Point Rd SW"],
+        [46.9912, -122.9612, "Taco Bell", "Olympia", "WA", "2725 93rd Ave. SW"],
+        // WASHINGTON - Other cities
+        [47.9790, -122.2008, "Taco Bell", "Everett", "WA", "1001 N Broadway"],
+        [47.9312, -122.2312, "Taco Bell", "Everett", "WA", "10121 Evergreen Way"],
+        [46.2112, -119.1912, "Taco Bell", "Kennewick", "WA", "2811 W Kennewick Ave"],
+        [46.2312, -119.2312, "Taco Bell", "Kennewick", "WA", "7520 W Canal Dr"],
+        [46.6012, -120.5112, "Taco Bell", "Yakima", "WA", "111 N Fair Ave"],
+        [46.5812, -120.5012, "Taco Bell", "Yakima", "WA", "2404 S 1st St"],
+        [46.2856, -119.2845, "Taco Bell", "Richland", "WA", "2016 George Washington Way"],
+        [47.3134, -122.3123, "Taco Bell", "Federal Way", "WA", "31620 Pacific Hwy S"],
+        [47.8312, -122.3012, "Taco Bell", "Lynnwood", "WA", "18827 33rd Ave W"],
+        [47.3912, -122.2012, "Taco Bell", "Kent", "WA", "25633 104th Ave SE"],
+        [47.4612, -122.1812, "Taco Bell", "Renton", "WA", "17625 108th Ave SE"],
+        [47.3112, -122.2312, "Taco Bell", "Auburn", "WA", "1702 Auburn Way N"],
+        [47.1512, -122.3612, "Taco Bell", "Puyallup", "WA", "11012 Canyon Rd E"],
+        [47.0412, -122.8212, "Taco Bell", "Lacey", "WA", "4515 Martin Way E"],
+        [46.1512, -122.9312, "Taco Bell", "Longview", "WA", "700 7th Ave"],
+        [46.0712, -118.3512, "Taco Bell", "Walla Walla", "WA", "1535 W Rose St"],
+        [47.4312, -120.3212, "Taco Bell", "Wenatchee", "WA", "1128 N Miller St"],
+        [47.1312, -119.2812, "Taco Bell", "Moses Lake", "WA", "324 S Pioneer Way"],
+        [48.4212, -122.3312, "Taco Bell", "Mount Vernon", "WA", "1700 Riverside Dr"],
+        [47.5612, -122.6312, "Taco Bell", "Bremerton", "WA", "3201 Wheaton Way"],
+        // OREGON - Portland (22)
+        [45.5189, -122.5612, "Taco Bell", "Portland", "OR", "9350 SE Stark Street"],
+        [45.4612, -122.5812, "Taco Bell", "Portland", "OR", "8181 Johnson Creek Blvd SE"],
+        [45.4512, -122.7112, "Taco Bell", "Portland", "OR", "7710 SW Barbur Blvd"],
+        [45.5712, -122.6612, "Taco Bell", "Portland", "OR", "7415 NE Martin Luther King Blvd"],
+        [45.5345, -122.6612, "Taco Bell", "Portland", "OR", "725 NE Weidler St."],
+        [45.4912, -122.6112, "Taco Bell", "Portland", "OR", "4933 SE Powell Blvd"],
+        [45.5789, -122.7312, "Taco Bell", "Portland", "OR", "4909 N Lombard St."],
+        [45.5512, -122.8312, "Taco Bell", "Portland", "OR", "4852 NW Bethany Blvd"],
+        [45.5634, -122.6812, "Taco Bell", "Portland", "OR", "4616 N Interstate Ave"],
+        [45.4889, -122.5812, "Taco Bell", "Portland", "OR", "3908 SE 82nd Ave"],
+        [45.5312, -122.5812, "Taco Bell", "Portland", "OR", "2247 NE 82nd Ave"],
+        [45.5234, -122.6912, "Taco Bell", "Portland", "OR", "2079 W Burnside Street"],
+        [45.5389, -122.5312, "Taco Bell", "Portland", "OR", "1946 NE 122nd Ave"],
+        [45.5189, -122.4712, "Taco Bell", "Portland", "OR", "18510 SE Stark St."],
+        [45.5612, -122.8112, "Taco Bell", "Portland", "OR", "13480 NW Science Park Drive"],
+        [45.5012, -122.5412, "Taco Bell", "Portland", "OR", "12605 SE Division St."],
+        [45.6212, -122.6912, "Taco Bell", "Portland", "OR", "12237 N Jantzen Dr"],
+        [45.5267, -122.5412, "Taco Bell", "Portland", "OR", "12017 NE Glisan St"],
+        [45.5889, -122.5912, "Taco Bell", "Portland", "OR", "8163 NE Air Cargo Rd"],
+        [45.4512, -122.5812, "Taco Bell", "Portland", "OR", "11699 SE 82nd Avenue"],
+        [45.4912, -122.7812, "Taco Bell", "Portland", "OR", "6560 SW Beaverton"],
+        [45.5389, -122.4312, "Taco Bell", "Portland", "OR", "2309 NE 181st Ave"],
+        // OREGON - Eugene (6)
+        [44.0512, -123.1012, "Taco Bell", "Eugene", "OR", "669 West 7th Ave"],
+        [44.0789, -123.1412, "Taco Bell", "Eugene", "OR", "4295 Barger Dr"],
+        [44.0434, -123.1312, "Taco Bell", "Eugene", "OR", "2890 West 11th Ave"],
+        [44.0912, -123.0712, "Taco Bell", "Eugene", "OR", "2805 Chad Dr"],
+        [44.0612, -123.0812, "Taco Bell", "Eugene", "OR", "215 Division Avenue"],
+        [44.0434, -123.1512, "Taco Bell", "Eugene", "OR", "4550 W 11th"],
+        // OREGON - Salem (6)
+        [44.8912, -123.0112, "Taco Bell", "Salem", "OR", "5795 Commercial St SE"],
+        [44.9312, -122.9812, "Taco Bell", "Salem", "OR", "565 Lancaster Dr SE"],
+        [44.9512, -123.0512, "Taco Bell", "Salem", "OR", "450 Wallace Rd NW"],
+        [44.9612, -122.9712, "Taco Bell", "Salem", "OR", "2093 Lancaster Dr NE"],
+        [44.9912, -122.9612, "Taco Bell", "Salem", "OR", "4220 Brooklake Rd NE"],
+        [44.9112, -123.0112, "Taco Bell", "Salem", "OR", "3455 Commercial St SE"],
+        // OREGON - Bend (2)
+        [44.0712, -121.2912, "Taco Bell", "Bend", "OR", "533 NE Bellevue Dr"],
+        [44.0612, -121.3012, "Taco Bell", "Bend", "OR", "1104 NE 3rd St"],
+        // OREGON - Medford (4)
+        [42.3312, -122.8612, "Taco Bell", "Medford", "OR", "448 E Jackson St."],
+        [42.3512, -122.8312, "Taco Bell", "Medford", "OR", "2490 Crater Lake Highway"],
+        [42.3212, -122.8912, "Taco Bell", "Medford", "OR", "2323 W. Main Street"],
+        [42.3412, -122.8512, "Taco Bell", "Medford", "OR", "1311 Center Drive"],
+        // OREGON - Other cities
+        [45.5012, -122.4312, "Taco Bell", "Gresham", "OR", "975 NW Civic Dr"],
+        [45.4912, -122.4112, "Taco Bell", "Gresham", "OR", "2001 E Powell Blvd"],
+        [45.5212, -122.9312, "Taco Bell", "Hillsboro", "OR", "1875 SE TV Hwy"],
+        [45.5412, -122.9112, "Taco Bell", "Hillsboro", "OR", "2041 NW 185th Ave"],
+        [45.4612, -122.7912, "Taco Bell", "Beaverton", "OR", "8715 SW Hall Blvd."],
+        [45.4912, -122.8112, "Taco Bell", "Beaverton", "OR", "3550 SW Cedar Hills Blvd"],
+        [44.0512, -122.9612, "Taco Bell", "Springfield", "OR", "1690 Mohawk Blvd"],
+        [44.5812, -123.2712, "Taco Bell", "Corvallis", "OR", "1845 NW 9th St"],
+        [44.6212, -123.0812, "Taco Bell", "Albany", "OR", "1624 Pacific Blvd SE"],
+        [43.2412, -123.3712, "Taco Bell", "Roseburg", "OR", "2680 NW Edenbower Blvd"],
+        [42.4512, -123.3312, "Taco Bell", "Grants Pass", "OR", "1865 NW 6th St"],
+        [42.2012, -121.7612, "Taco Bell", "Klamath Falls", "OR", "2310 Shasta Way"],
+        [45.4112, -122.7512, "Taco Bell", "Lake Oswego", "OR", "17775 SW McEwan Rd"],
+        [45.4312, -122.7712, "Taco Bell", "Tigard", "OR", "12015 SW Pacific Hwy"],
+        [45.3812, -122.7612, "Taco Bell", "Tualatin", "OR", "19317 SW Martinazzi Ave"],
+        [45.3412, -122.5812, "Taco Bell", "Oregon City", "OR", "1804 Molalla Ave"],
+        [45.4012, -122.6212, "Taco Bell", "Milwaukie", "OR", "16261 SE McLoughlin Blvd"],
+        [45.4312, -122.5712, "Taco Bell", "Clackamas", "OR", "14906 SE 82nd Dr"],
+        [45.8412, -119.2812, "Taco Bell", "Hermiston", "OR", "1085 N 1st St"],
+        [45.6712, -118.7912, "Taco Bell", "Pendleton", "OR", "230 SW Court Pl"],
+        [45.6012, -121.2012, "Taco Bell", "The Dalles", "OR", "2500 W 6th St"],
+        [43.3812, -124.2112, "Taco Bell", "Coos Bay", "OR", "1165 Newmark Ave"],
+        [46.1812, -123.8312, "Taco Bell", "Astoria", "OR", "792 W Marine Dr"],
+    ];
+    </script>
+    <script src="starbucks_data.js"></script>
+    <script>
+        // Initialize map
+        const map = L.map('map').setView([45.5, -121.5], 6);
+
+        L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+            attribution: '&copy; OpenStreetMap &copy; CARTO',
+            subdomains: 'abcd',
+            maxZoom: 19
+        }).addTo(map);
+
+        // Custom icons - smaller dots for density
+        const tacoDotIcon = L.divIcon({
+            className: 'taco-dot',
+            html: '<div style="width:8px;height:8px;background:#e63946;border:1.5px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.4);"></div>',
+            iconSize: [8, 8],
+            iconAnchor: [4, 4]
+        });
+
+        const starbucksDotIcon = L.divIcon({
+            className: 'starbucks-dot',
+            html: '<div style="width:6px;height:6px;background:#00704A;border:1px solid #fff;border-radius:50%;box-shadow:0 1px 3px rgba(0,0,0,0.4);"></div>',
+            iconSize: [6, 6],
+            iconAnchor: [3, 3]
+        });
+
+        // Layer groups
+        const tacoDotsLayer = L.layerGroup();
+        const starbucksDotsLayer = L.layerGroup();
+
+        // Add Taco Bell markers
+        tacoBellData.forEach(tb => {
+            const marker = L.marker([tb[0], tb[1]], { icon: tacoDotIcon });
+            marker.bindPopup(`<div class="popup-title taco">Taco Bell - ${tb[3]}, ${tb[4]}</div><div class="popup-address">${tb[5]}</div>`);
+            tacoDotsLayer.addLayer(marker);
+        });
+
+        // Add Starbucks markers
+        starbucksData.forEach(sb => {
+            const marker = L.marker([sb[0], sb[1]], { icon: starbucksDotIcon });
+            marker.bindPopup(`<div class="popup-title starbucks">${sb[2]}</div><div class="popup-address">${sb[3]}, ${sb[4]}</div>`);
+            starbucksDotsLayer.addLayer(marker);
+        });
+
+        // Heat map data
+        const tacoHeatData = tacoBellData.map(tb => [tb[0], tb[1], 1]);
+        const starbucksHeatData = starbucksData.map(sb => [sb[0], sb[1], 0.5]);
+
+        // Heat layers
+        const tacoHeatLayer = L.heatLayer(tacoHeatData, {
+            radius: 25,
+            blur: 20,
+            maxZoom: 10,
+            max: 1,
+            gradient: {0.2: '#ff6b6b', 0.4: '#e63946', 0.6: '#d62839', 0.8: '#b71c1c', 1: '#7f0000'}
+        });
+
+        const starbucksHeatLayer = L.heatLayer(starbucksHeatData, {
+            radius: 20,
+            blur: 15,
+            maxZoom: 10,
+            max: 1,
+            gradient: {0.2: '#81c784', 0.4: '#4caf50', 0.6: '#388e3c', 0.8: '#2e7d32', 1: '#1b5e20'}
+        });
+
+        // Add layers to map
+        starbucksHeatLayer.addTo(map);
+        tacoHeatLayer.addTo(map);
+        starbucksDotsLayer.addTo(map);
+        tacoDotsLayer.addTo(map);
+
+        // Layer toggle controls
+        document.getElementById('toggle-taco-dots').addEventListener('change', function() {
+            this.checked ? map.addLayer(tacoDotsLayer) : map.removeLayer(tacoDotsLayer);
+        });
+        document.getElementById('toggle-starbucks-dots').addEventListener('change', function() {
+            this.checked ? map.addLayer(starbucksDotsLayer) : map.removeLayer(starbucksDotsLayer);
+        });
+        document.getElementById('toggle-taco-heat').addEventListener('change', function() {
+            this.checked ? map.addLayer(tacoHeatLayer) : map.removeLayer(tacoHeatLayer);
+        });
+        document.getElementById('toggle-starbucks-heat').addEventListener('change', function() {
+            this.checked ? map.addLayer(starbucksHeatLayer) : map.removeLayer(starbucksHeatLayer);
+        });
+
+        // Add legend
+        const legend = L.control({ position: 'bottomleft' });
+        legend.onAdd = function() {
+            const div = L.DomUtil.create('div', 'legend');
+            div.innerHTML = `
+                <div class="legend-title">Legend</div>
+                <div class="legend-item"><div class="legend-dot taco"></div> Taco Bell</div>
+                <div class="legend-item"><div class="legend-dot starbucks"></div> Starbucks</div>
+                <div class="legend-item"><div class="legend-heat taco"></div> TB Density</div>
+                <div class="legend-item"><div class="legend-heat starbucks"></div> SB Density</div>
+            `;
+            return div;
+        };
+        legend.addTo(map);
+
+        // Calculate distances using Haversine formula
+        function haversineDistance(lat1, lon1, lat2, lon2) {
+            const R = 3959; // Earth radius in miles
+            const dLat = (lat2 - lat1) * Math.PI / 180;
+            const dLon = (lon2 - lon1) * Math.PI / 180;
+            const a = Math.sin(dLat/2) * Math.sin(dLat/2) +
+                      Math.cos(lat1 * Math.PI / 180) * Math.cos(lat2 * Math.PI / 180) *
+                      Math.sin(dLon/2) * Math.sin(dLon/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+            return R * c;
+        }
+
+        // Find nearest Starbucks for each Taco Bell
+        const distances = tacoBellData.map(tb => {
+            let minDist = Infinity;
+            starbucksData.forEach(sb => {
+                const dist = haversineDistance(tb[0], tb[1], sb[0], sb[1]);
+                if (dist < minDist) minDist = dist;
+            });
+            return minDist;
+        });
+
+        // Calculate statistics
+        const sortedDist = [...distances].sort((a, b) => a - b);
+        const minDist = Math.min(...distances);
+        const maxDist = Math.max(...distances);
+        const avgDist = distances.reduce((a, b) => a + b, 0) / distances.length;
+        const medianDist = sortedDist[Math.floor(sortedDist.length / 2)];
+
+        document.getElementById('min-dist').textContent = minDist.toFixed(2) + ' mi';
+        document.getElementById('max-dist').textContent = maxDist.toFixed(2) + ' mi';
+        document.getElementById('avg-dist').textContent = avgDist.toFixed(2) + ' mi';
+        document.getElementById('median-dist').textContent = medianDist.toFixed(2) + ' mi';
+
+        // Create histogram bins
+        const binSize = 0.05;
+        const maxBin = Math.ceil(maxDist / binSize) * binSize;
+        const bins = [];
+        const labels = [];
+        for (let i = 0; i < maxBin; i += binSize) {
+            bins.push(0);
+            labels.push(i.toFixed(1));
+        }
+        distances.forEach(d => {
+            const binIndex = Math.min(Math.floor(d / binSize), bins.length - 1);
+            bins[binIndex]++;
+        });
+
+        // Create chart
+        const ctx = document.getElementById('distanceChart').getContext('2d');
+        new Chart(ctx, {
+            type: 'bar',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: 'Taco Bell locations',
+                    data: bins,
+                    backgroundColor: 'rgba(168, 85, 247, 0.7)',
+                    borderColor: 'rgba(168, 85, 247, 1)',
+                    borderWidth: 1
+                }]
+            },
+            options: {
+                responsive: true,
+                maintainAspectRatio: false,
+                plugins: {
+                    legend: { display: false },
+                    title: {
+                        display: true,
+                        text: 'Distance to Nearest Starbucks (miles)',
+                        color: '#aaa',
+                        font: { size: 12 }
+                    }
+                },
+                scales: {
+                    x: {
+                        title: { display: true, text: 'Miles', color: '#888' },
+                        ticks: { color: '#888', maxTicksLimit: 10 },
+                        grid: { color: '#333' }
+                    },
+                    y: {
+                        title: { display: true, text: 'Count', color: '#888' },
+                        ticks: { color: '#888' },
+                        grid: { color: '#333' }
+                    }
+                }
+            }
+        });
+
+        // Update header counts
+        document.getElementById('taco-count').textContent = tacoBellData.length;
+        document.getElementById('starbucks-count').textContent = starbucksData.toLocaleString().length > 3 ?
+            starbucksData.length.toLocaleString() : starbucksData.length;
+    </script>
+</body>
+</html>
